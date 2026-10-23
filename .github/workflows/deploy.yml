@@ -1,0 +1,30 @@
+name: Deploy to GCP VM
+
+on:
+  push:
+    branches:
+      - main # change to 'master' if your default branch is master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger remote deployment via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: 22
+          script: |
+            cd ~/automatic-oem-ai-chat-agent
+            
+            # Pull latest changes
+            git pull origin main
+            
+            # Rebuild and restart containers
+            docker compose up -d --build
+            
+            # Optional: prune dangling images to save disk space
+            docker image prune -f

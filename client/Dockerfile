@@ -17,7 +17,7 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0
 
 # The workspace-aware standalone trace nests the application under /client.
-COPY --from=builder --chown=node:node /app/.next/standalone/client ./
+COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
 
