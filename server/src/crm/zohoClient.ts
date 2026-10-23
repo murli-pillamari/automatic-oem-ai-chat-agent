@@ -67,13 +67,80 @@ export class ZohoClient {
     return data.data?.[0] ?? null;
   }
 
-  async findDealByPhone(phone: string) {
-    const query = { select_query: `select id, Deal_Name, Stage, Amount, Closing_Date from Deals where Contact_Name.Phone = '${phone.replace(/'/g, "\\'")}' limit 1` };
-    const data = await this.request<ZohoListResponse<Record<string, unknown>>>("/coql", { method: "POST", body: JSON.stringify(query) });
-    return data.data?.[0] ?? null;
+  async getDealStatus(query: { phone?: string; name?: string; dealId?: string; dealName?: string; bookingId?: string }) {
+    if (query.bookingId) return this.getBookingDetails({ bookingId: query.bookingId });
+    if (query.phone) {
+      const phone = this.cleanSearchQuery(query.phone);
+      const contacts = await this.request<ZohoListResponse<Record<string, unknown>>>(`/Contacts/search?phone=${encodeURIComponent(phone)}`);
+      const contact = contacts.data?.[0];
+      if (contact) {
+        const contactName = this.contactName(contact);
+        if (contactName) return this.searchDealsByName(contactName);
+      }
+      // Phone is sometimes only recorded in Deal Description, so search all Deal text fields as a fallback.
+      return this.searchDealsByWord(phone);
+    }
+
+    const name = query.name || query.dealName || query.dealId;
+    if (!name) throw new Error("A phone number, customer name, or deal ID is required to find a deal.");
+    return this.searchDealsByName(name);
   }
 
-  async createLead(input: { name: string; phone: string; vehicle?: string; email?: string }) {
+  async getBookingDetails(query: { bookingId?: string; dealId?: string; name?: string; dealName?: string }) {
+    const bookingIdOrQuery = query.bookingId || query.dealId || query.name || query.dealName;
+    if (!bookingIdOrQuery) throw new Error("A booking ID is required to find booking details.");
+    const cleanQuery = this.cleanSearchQuery(bookingIdOrQuery);
+    if (!cleanQuery) throw new Error("A booking ID is required to find booking details.");
+    // Booking IDs may appear in a Deal Name, Description, or custom text field.
+    const wordMatch = await this.searchDealsByWord(cleanQuery);
+    return wordMatch ?? this.searchDealsByBookingPrefix(cleanQuery);
+  }
+
+  async findDealByPhone(phone: string) {
+    return this.getDealStatus({ phone });
+  }
+
+  private async searchDealsByName(name: string) {
+    const cleanQuery = this.cleanSearchQuery(name);
+    const data = await this.request<ZohoListResponse<Record<string, unknown>>>(`/Deals/search?criteria=(Deal_Name:contains:${encodeURIComponent(cleanQuery)})`);
+    return data.data?.[0] ? this.dealDetails(data.data[0]) : null;
+  }
+
+  private async searchDealsByWord(word: string) {
+    const cleanQuery = this.cleanSearchQuery(word);
+    const data = await this.request<ZohoListResponse<Record<string, unknown>>>(`/Deals/search?word=${encodeURIComponent(cleanQuery)}`);
+    return data.data?.[0] ? this.dealDetails(data.data[0]) : null;
+  }
+
+  private async searchDealsByBookingPrefix(bookingId: string) {
+    const cleanId = this.cleanSearchQuery(bookingId);
+    const data = await this.request<ZohoListResponse<Record<string, unknown>>>(`/Deals/search?criteria=(Deal_Name:starts_with:${encodeURIComponent(cleanId)})`);
+    return data.data?.[0] ? this.dealDetails(data.data[0]) : null;
+  }
+
+  private contactName(contact: Record<string, unknown>) {
+    if (typeof contact.Full_Name === "string" && contact.Full_Name.trim()) return contact.Full_Name.trim();
+    return [contact.First_Name, contact.Last_Name].filter((part): part is string => typeof part === "string" && Boolean(part.trim())).join(" ");
+  }
+
+  private cleanSearchQuery(bookingIdOrQuery: unknown) {
+    return String(bookingIdOrQuery).replace(/^[#\s]+/, "").trim();
+  }
+
+  private dealDetails(deal: Record<string, unknown>) {
+    const scheduledNotes = Object.entries(deal)
+      .filter(([key, value]) => /(?:scheduled|appointment|next_step|note)/i.test(key) && value != null && value !== "")
+      .map(([field, value]) => ({ field, value }));
+    return {
+      Deal_Name: deal.Deal_Name ?? null,
+      Stage: deal.Stage ?? null,
+      Amount: deal.Amount ?? null,
+      Description: deal.Description ?? null,
+      scheduledNotes
+    };
+  }
+
+  async createLead(input: { name: string; phone: string; email: string; preferredCity: string; vehicle?: string }) {
     const [firstName, ...last] = input.name.trim().split(/\s+/);
     const result = await this.request<{ data: Array<Record<string, unknown>> }>("/Leads", {
       method: "POST",
@@ -82,6 +149,7 @@ export class ZohoClient {
         Last_Name: last.join(" ") || firstName,
         Phone: input.phone,
         Email: input.email,
+        City: input.preferredCity,
         Description: input.vehicle ? `Vehicle interest: ${input.vehicle}` : undefined,
         Lead_Source: "AI Chat Agent"
       }] })

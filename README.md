@@ -61,7 +61,7 @@ ZOHO_DC=in
 ```json
 {
   "sessionId": "optional UUID",
-  "message": "I want to test drive the EV X1",
+  "message": "I want to test drive the XUV700",
   "customer": { "name": "Ria Sharma", "phone": "+919876543210" }
 }
 ```

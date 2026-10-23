@@ -2,7 +2,7 @@
 
 const actions = [
   ["Explore vehicles", "I’m looking for an electric SUV under ₹20 lakh."],
-  ["Book a test drive", "I’d like to book a test drive for the EV X1."],
+  ["Book a test drive", "I’d like to book a test drive for the XUV700."],
   ["Track delivery", "Can you check my delivery status?"],
   ["Service support", "I need help with a service issue."]
 ] as const;
