@@ -67,23 +67,30 @@ export class ZohoClient {
     return data.data?.[0] ?? null;
   }
 
-  async getDealStatus(query: { phone?: string; name?: string; dealId?: string; dealName?: string; bookingId?: string }) {
-    if (query.bookingId) return this.getBookingDetails({ bookingId: query.bookingId });
-    if (query.phone) {
-      const phone = this.cleanSearchQuery(query.phone);
-      const contacts = await this.request<ZohoListResponse<Record<string, unknown>>>(`/Contacts/search?phone=${encodeURIComponent(phone)}`);
-      const contact = contacts.data?.[0];
-      if (contact) {
-        const contactName = this.contactName(contact);
-        if (contactName) return this.searchDealsByName(contactName);
-      }
-      // Phone is sometimes only recorded in Deal Description, so search all Deal text fields as a fallback.
-      return this.searchDealsByWord(phone);
+  async getDealStatus(query: string | { phone?: string; name?: string; dealId?: string; dealName?: string; bookingId?: string }) {
+    if (typeof query !== "string" && query.bookingId) return this.getBookingDetails({ bookingId: query.bookingId });
+    const queryValue = typeof query === "string" ? query : query.phone || query.name || query.dealName || query.dealId;
+    if (!queryValue) throw new Error("A phone number, customer name, or deal ID is required to find a deal.");
+    const cleanQuery = this.cleanSearchQuery(queryValue);
+    if (!cleanQuery) throw new Error("A phone number, customer name, or deal ID is required to find a deal.");
+
+    // Deal word search covers Deal Name and Description, including phone values stored in text fields.
+    const wordMatch = await this.searchDealsByWord(cleanQuery);
+    if (wordMatch) return wordMatch;
+
+    // Deals do not expose a native Phone field: resolve the Contact, then match its lookup ID.
+    const contacts = await this.request<ZohoListResponse<Record<string, unknown>>>(`/Contacts/search?phone=${encodeURIComponent(cleanQuery)}`);
+    const contactId = contacts.data?.[0]?.id;
+    if (typeof contactId === "string") {
+      const contactDeal = await this.searchDealsByContactId(contactId);
+      if (contactDeal) return contactDeal;
     }
 
-    const name = query.name || query.dealName || query.dealId;
-    if (!name) throw new Error("A phone number, customer name, or deal ID is required to find a deal.");
-    return this.searchDealsByName(name);
+    const leadByPhone = await this.request<ZohoListResponse<Record<string, unknown>>>(`/Leads/search?phone=${encodeURIComponent(cleanQuery)}`);
+    if (leadByPhone.data?.[0]) return this.leadDetails(leadByPhone.data[0]);
+
+    const leadByWord = await this.request<ZohoListResponse<Record<string, unknown>>>(`/Leads/search?word=${encodeURIComponent(cleanQuery)}`);
+    return leadByWord.data?.[0] ? this.leadDetails(leadByWord.data[0]) : null;
   }
 
   async getBookingDetails(query: { bookingId?: string; dealId?: string; name?: string; dealName?: string }) {
@@ -112,15 +119,15 @@ export class ZohoClient {
     return data.data?.[0] ? this.dealDetails(data.data[0]) : null;
   }
 
+  private async searchDealsByContactId(contactId: string) {
+    const data = await this.request<ZohoListResponse<Record<string, unknown>>>(`/Deals/search?criteria=(Contact_Name:equals:${encodeURIComponent(contactId)})`);
+    return data.data?.[0] ? this.dealDetails(data.data[0]) : null;
+  }
+
   private async searchDealsByBookingPrefix(bookingId: string) {
     const cleanId = this.cleanSearchQuery(bookingId);
     const data = await this.request<ZohoListResponse<Record<string, unknown>>>(`/Deals/search?criteria=(Deal_Name:starts_with:${encodeURIComponent(cleanId)})`);
     return data.data?.[0] ? this.dealDetails(data.data[0]) : null;
-  }
-
-  private contactName(contact: Record<string, unknown>) {
-    if (typeof contact.Full_Name === "string" && contact.Full_Name.trim()) return contact.Full_Name.trim();
-    return [contact.First_Name, contact.Last_Name].filter((part): part is string => typeof part === "string" && Boolean(part.trim())).join(" ");
   }
 
   private cleanSearchQuery(bookingIdOrQuery: unknown) {
@@ -128,15 +135,29 @@ export class ZohoClient {
   }
 
   private dealDetails(deal: Record<string, unknown>) {
-    const scheduledNotes = Object.entries(deal)
-      .filter(([key, value]) => /(?:scheduled|appointment|next_step|note)/i.test(key) && value != null && value !== "")
-      .map(([field, value]) => ({ field, value }));
+    const details = Object.fromEntries(Object.entries(deal).filter(([, value]) => value != null && value !== ""));
+    const schedule = Object.fromEntries(Object.entries(details).filter(([key]) => /(?:test.?drive|scheduled|appointment|schedule|next_step|note)/i.test(key)));
+    const quote = Object.fromEntries(Object.entries(details).filter(([key]) => /(?:quote|on.?road|price|amount)/i.test(key)));
     return {
+      recordType: "deal",
       Deal_Name: deal.Deal_Name ?? null,
       Stage: deal.Stage ?? null,
       Amount: deal.Amount ?? null,
       Description: deal.Description ?? null,
-      scheduledNotes
+      details,
+      testDriveSchedule: schedule,
+      quote,
+      scheduledNotes: Object.entries(schedule).map(([field, value]) => ({ field, value }))
+    };
+  }
+
+  private leadDetails(lead: Record<string, unknown>) {
+    return {
+      recordType: "lead",
+      Lead_Name: lead.Full_Name ?? ([lead.First_Name, lead.Last_Name].filter((part): part is string => typeof part === "string" && Boolean(part.trim())).join(" ") || null),
+      Stage: lead.Lead_Status ?? lead.Stage ?? null,
+      Description: lead.Description ?? null,
+      details: Object.fromEntries(Object.entries(lead).filter(([, value]) => value != null && value !== ""))
     };
   }
 

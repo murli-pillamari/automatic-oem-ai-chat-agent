@@ -13,7 +13,8 @@ export const lifecycleTools: LifecycleTool[] = [
   { name: "capture_lead", description: "When a user asks about a vehicle or wants a test drive, collect ONLY Full Name, Phone, Email, and Preferred City. Do NOT ask for dates, times, or dealership preferences. Once these four details are present, create the lead.", parameters: object({ name: { type: "string", description: "Customer full name" }, phone: { type: "string" }, email: { type: "string" }, preferredCity: { type: "string" }, vehicle: vehicleSchema }, ["name", "phone", "email", "preferredCity"]) },
   { name: "search_vehicles", description: "Search the approved local vehicle catalogue.", parameters: object({ query: { type: "string" }, budget: { type: "number" } }) },
   { name: "schedule_test_drive", description: "Reserved for a dealer-confirmed follow-up. Never use this for a new vehicle or test-drive inquiry; use capture_lead instead.", parameters: object({ vehicle: vehicleSchema, dateTime: { type: "string" }, location: { type: "string" }, confirmed: { type: "boolean" } }, ["vehicle", "dateTime", "confirmed"]) },
-  { name: "get_delivery_status", description: "Find delivery status for the supplied phone.", parameters: object({ phone: { type: "string" } }, ["phone"]) },
+  { name: "check_deal_status", description: "Look up an existing pipeline deal using a phone number, customer name, deal name, or deal ID. Searches Deals first, then a phone-matched Contact and finally Leads.", parameters: object({ query: { type: "string", description: "Phone number, customer name, deal name, or deal ID" } }, ["query"]) },
+  { name: "get_delivery_status", description: "Find delivery status for the supplied phone number using the pipeline deal lookup.", parameters: object({ phone: { type: "string" } }, ["phone"]) },
   { name: "get_booking_details", description: "Find booking details from a supplied booking ID. Do not request a phone number when a booking ID is available.", parameters: object({ bookingId: { type: "string", description: "Booking ID, for example MAH-9921" } }, ["bookingId"]) },
   { name: "track_booking", description: "Immediately track a supplied booking ID without requesting a phone number.", parameters: object({ bookingId: { type: "string", description: "Booking ID, for example MAH-9921 or #MAH-9921" } }, ["bookingId"]) },
   { name: "create_service_case", description: "Open a service case only after explicit confirmation.", parameters: object({ subject: { type: "string" }, description: { type: "string" }, phone: { type: "string" }, priority: { type: "string", enum: ["Low", "Normal", "High", "Urgent"] }, confirmed: { type: "boolean" } }, ["subject", "description", "confirmed"]) }
@@ -55,8 +56,14 @@ export async function executeLifecycleTool(name: string, args: ToolArgs, session
       return { stage: "sales", result: { requested: true, appointment: event, vehicle: args.vehicle, start, message: event ? "Test drive reserved in Zoho CRM." : "Test-drive request recorded; a dealer will confirm availability." } };
     }
     case "get_delivery_status": {
-      const deal = await safeZoho("find delivery deal", () => zohoClient.findDealByPhone(phone));
+      const deal = await safeZoho("find delivery deal", () => zohoClient.getDealStatus(phone));
       return { stage: "ownership", result: deal ? { found: true, deal } : { found: false, message: "No delivery record is available yet. I can arrange a dealer callback." } };
+    }
+    case "check_deal_status": {
+      const query = String(args.query ?? "").trim();
+      if (!query) throw new Error("A phone number, customer name, deal name, or deal ID is required to find a deal.");
+      const record = await safeZoho("check deal status", () => zohoClient.getDealStatus(query));
+      return { stage: "sales", result: record ? { found: true, record } : { found: false, message: "No matching deal or lead record was found." } };
     }
     case "get_booking_details":
     case "track_booking": {
