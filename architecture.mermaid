@@ -1,0 +1,14 @@
+flowchart LR
+  Browser["Next.js 14 client\nChatContainer + Quick Actions"] -->|POST /api/chat| API["Express API\nNode.js / TypeScript"]
+  Browser -->|GET /api/history| API
+  API --> DB[("SQLite\nsessions + messages")]
+  API --> Agent["Gemini 2.0 Flash\nOrchestrator + OEM policy"]
+  Agent --> Tools["Lifecycle function tools"]
+  Tools --> Lead["Lead\nidentify / capture"]
+  Tools --> Sales["Sales\nvehicle search / test drive"]
+  Tools --> Owner["Ownership\ndelivery lookup"]
+  Tools --> Service["After-sales\nservice case"]
+  Tools --> Zoho["Zoho CRM v6\nOAuth 2.0 refresh"]
+  Zoho --> API
+  DB --> API
+  Agent --> API
