@@ -40,6 +40,16 @@ Open `http://localhost:3000`. The API starts at `http://localhost:4000`; `GET /h
 
 Set `GEMINI_API_KEY` in `server/.env` before chatting. The seeded record is `Ria Sharma`, phone `+919876543210`, which is useful for a local lookup demo. The browser creates normal UUID sessions; the seed is an API/database test fixture.
 
+## Docker deployment
+
+Create `server/.env` from `server/.env.example`, add the required provider credentials, then run:
+
+```powershell
+docker-compose up --build -d
+```
+
+The client is available on port 3000 and the API on port 5000. Compose mounts the named `sqlite_data` volume at `/app/data`, where the backend writes `crm_agent.db`; the database persists through container recreation. Set `NEXT_PUBLIC_API_URL` before building if the browser must reach the API on a non-local public URL.
+
 ## Zoho configuration
 
 Keep `ZOHO_ENABLED=false` for a safe local demo. To use your CRM, set all of the following in `server/.env`:

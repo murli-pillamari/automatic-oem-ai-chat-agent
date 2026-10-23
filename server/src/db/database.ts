@@ -4,8 +4,10 @@ import Database from "better-sqlite3";
 import { config } from "../config.js";
 import type { LifecycleStage, MessageRole, Session, StoredMessage } from "../types/index.js";
 
-fs.mkdirSync(path.dirname(config.databasePath), { recursive: true });
-const sqlite = new Database(config.databasePath);
+// Docker supplies SQLITE_DB_PATH=/app/data/crm_agent.db; local development uses server/data.
+const sqlitePath = path.resolve(process.env.SQLITE_DB_PATH || config.databasePath);
+fs.mkdirSync(path.dirname(sqlitePath), { recursive: true });
+const sqlite = new Database(sqlitePath);
 sqlite.pragma("journal_mode = WAL");
 sqlite.pragma("foreign_keys = ON");
 

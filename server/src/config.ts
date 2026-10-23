@@ -14,7 +14,7 @@ const uniqueModels = (models: string[]) => [...new Set(models.filter(Boolean))];
 export const config = {
   port: Number(process.env.PORT ?? 4000),
   clientOrigin: process.env.CLIENT_ORIGIN ?? "http://localhost:3000",
-  databasePath: path.resolve(process.cwd(), process.env.SQLITE_PATH ?? "./data/oem-agent.db"),
+  databasePath: path.resolve(process.env.SQLITE_DB_PATH ?? process.env.SQLITE_PATH ?? path.join(process.cwd(), "data", "crm_agent.db")),
   geminiApiKey: process.env.GEMINI_API_KEY?.trim(),
   // The configured model is always tried first; fallbacks only apply to unavailable-model errors.
   geminiModel: configuredGeminiModel,
